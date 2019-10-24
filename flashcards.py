@@ -1,15 +1,22 @@
+#!/usr/bin/env python3
+
+#stdlib imports
 import json
 import argparse
 import random
 from collections.abc import Iterable
 from collections import Counter
+from subprocess import call
 
-def flatten(l):
-    for el in l:
-        if isinstance(el, Iterable) and not isinstance(el, (str, bytes)):
-            yield from flatten(el)
+#3rd party imports
+import urwid
+
+def flatten(iterable):
+    for item in iterable:
+        if isinstance(item, Iterable) and not isinstance(item, (str, bytes)):
+            yield from flatten(item)
         else:
-            yield el
+            yield item
 
 def load_words(filenames):
     '''Return a dict of all the words to flash'''
@@ -23,11 +30,72 @@ def load_katakana():
     with open('katakana.json') as f:
         return json.load(f)
 
+#TODO handle digraphs
 def generate_pronunciation_key(word, katakana):
     return list(map(lambda x: katakana.get(x, x), word))
 
+#TODO spaced repetition of incorrect answers
 def select_word(words):
     return random.choice(words)
+
+def handle_global_command(flashcards, key):
+    if key == 'meta q':
+       raise urwid.ExitMainLoop
+    if key == 'enter':
+       flashcards.next_card()
+       return True
+
+#TODO collect and show statistics
+#TODO help mode to show katakana table
+#TODO hints mode show category
+#TODO hints mode show specific hint
+class Flashcards(object):
+    def __init__(self, args):
+        self.words = load_words(flatten(args.wordfiles))
+
+        self.wordlist = list(self.words.keys())
+        self.katakana = load_katakana()
+
+        self.editor = urwid.Edit("", align="center")
+        self.question = select_word(self.wordlist)
+        self.header = urwid.Text(self.question, align="center")
+        self.footer = urwid.Text("", align="center")
+        self.current_card = urwid.Filler(
+            urwid.Padding(
+                urwid.LineBox(
+                    urwid.Frame(
+                        urwid.Filler(self.editor),
+                        header=self.header,
+                        footer=self.footer
+                    )
+                ),
+                align='center',
+                width=('relative', 40),
+                min_width=20
+            ),
+            valign='middle',
+            height=('relative', 40),
+            min_height=5
+        )
+
+
+    def verify_answer(self):
+        value = self.editor.get_edit_text().lower().replace(" ","")
+        result = value == self.words[self.question].lower().replace(" ","")
+        return result
+
+    def next_card(self):
+        previous_correct = self.verify_answer()
+        if previous_correct:
+            footer_text = f"Correct, {self.question} is {self.words[self.question]}"
+        else:
+            pkey = generate_pronunciation_key(self.question, self.katakana)
+            footer_text = f"Incorrect, {self.question} is {self.words[self.question]}\n{pkey}"
+        self.question = select_word(self.wordlist)
+        self.editor.set_edit_text("")
+        self.header.set_text(self.question)
+        self.footer.set_text(footer_text)
+
 
 def main():
     parser = argparse.ArgumentParser()
@@ -39,44 +107,12 @@ def main():
     )
     args = parser.parse_args()
 
-    
+    flashcards = Flashcards(args)
+    loop = urwid.MainLoop(flashcards.current_card, unhandled_input=lambda x: handle_global_command(flashcards, x) )
+    loop.run()
 
-    words = load_words(flatten(args.wordfiles))
-    wordlist = list(words.keys())
-    katakana = load_katakana()
-    
-    pronunciations = \
-        {x: generate_pronunciation_key(x, katakana) 
-          for x in words.keys()}
-
-
-    count = 0
-    correct = 0
-
-    most_incorrect = Counter()
-    most_correct = Counter() 
-    try:
-        while True:
-            word = select_word(wordlist)
-            print(f'What is: {word} ?')
-            guess = input("-> ")
-            if guess.lower().replace(' ', '') == words[word].lower().replace(' ',''):
-                correct += 1
-                most_correct[word] += 1
-                print(f'Well done, it was "{guess}" !')
-            else:
-                pronunciation = pronunciations[word]
-                most_incorrect[word] += 1
-                print(f'Oops, it wasn\'t "{guess}')
-                print(f'It\'s pronounced like "{pronunciation}"')
-                print(f'The answer is {words[word]}')
-            print()
-            count += 1
-            if count % 20 == 0:
-                print(f'success rate {correct/float(count)}')            
-    except KeyboardInterrupt:
-         print(f"Done, {count} attempts, {correct} correct")
-         print(most_correct.most_common(2))
+    #FIXME: call to clear the shell, couldn't get urwid to do it
+    call("clear", shell=True)
 
 if __name__ == '__main__':
     main()
