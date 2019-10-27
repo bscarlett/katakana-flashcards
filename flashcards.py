@@ -35,7 +35,16 @@ def load_katakana():
 
 #TODO handle digraphs
 def generate_pronunciation_key(word, katakana):
-    return list(map(lambda x: katakana.get(x, x), word))
+    #return list(map(lambda x: katakana.get(x, x), word))
+    return list(generate_pronunciation_key_digraph(word, katakana))
+
+def generate_pronunciation_key_digraph(word, katakana):
+    digraph_ends = ['ャ', 'ュ', 'ョ']
+    for index, character in enumerate(word):
+        if character in digraph_ends:
+            yield katakana.get(word[index-1] + character, character)
+        else:
+            yield katakana.get(character, character)
 
 def select_word(words, recently_incorrect, last_word):
     # 75% of the time, if there are recently incorrect answers, choose from those.
