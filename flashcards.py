@@ -29,11 +29,32 @@ def load_words(filenames):
            items.update(json.load(f))
     return items
 
+def load_countries():
+    with open('country-by-population.json') as f:
+        return sorted(
+            [x for x in json.load(f) if x['population'] is not None],
+            key=lambda y: y['population'],
+            reverse=True
+        )
+
+def select_countries(countries):
+    center = random.randint(0, len(countries))
+    if center < 10:
+        lower = 0
+        upper = center + 10
+    elif center > len(countries) - 10:
+        lower = center - 10
+        upper = len(countries)
+    else:
+        lower = center - 10
+        upper = center + 10
+    sliced_on_center = countries[lower:upper]
+    return random.sample(sliced_on_center, 3)
+
 def load_katakana():
     with open('katakana.json') as f:
         return json.load(f)
 
-#TODO handle digraphs
 def generate_pronunciation_key(word, katakana):
     #return list(map(lambda x: katakana.get(x, x), word))
     return list(generate_pronunciation_key_digraph(word, katakana))
@@ -103,17 +124,20 @@ class Statistics(object):
 class Flashcards(object):
     def __init__(self, args):
         # Words
-        self.words = load_words(flatten(args.wordfiles))
-        self.wordlist = list(self.words.keys())
-        self.katakana = load_katakana()
+        #self.words = load_words(flatten(args.wordfiles))
+        #self.wordlist = list(self.words.keys())
+        #self.katakana = load_katakana()
+
+        self.countries = load_countries()
 
         # Statistics
         self.stats = Statistics()
 
         # UI / State
         self.editor = urwid.Edit("", align="center")
-        self.question = select_word(self.wordlist, self.stats.get_recent_incorrect_words(), None)
-        self.header = urwid.Text(self.question, align="center")
+        #self.question = select_word(self.wordlist, self.stats.get_recent_incorrect_words(), None)
+        self.question = select_countries(self.countries)
+        self.header = urwid.Text(", ".join([x['country'] for x in self.question]), align="center")
         self.footer = urwid.Text("", align="center")
         self.stats.widget
         self.current_card = urwid.Overlay(
@@ -135,21 +159,25 @@ class Flashcards(object):
 
 
     def verify_answer(self):
-        value = self.editor.get_edit_text().lower().replace(" ","")
-        result = value == self.words[self.question].lower().replace(" ","")
+        value = self.editor.get_edit_text().lower().replace(" ","").replace(",","")
+        #result = value == self.words[self.question].lower().replace(" ","")
+        expected = ''.join([x['country'].lower().replace(" ","")
+            for x in sorted(self.question, key=lambda x: x['population'], reverse=True)
+        ])
+        result = value == expected
         self.stats.record(self.question, result)
         return result
 
     def next_card(self):
         previous_correct = self.verify_answer()
+        answer = ', '.join(f"{x['country']}: {x['population']:,}" for x in sorted(self.question, key=lambda z: z['population'], reverse=True))
         if previous_correct:
-            footer_text = f"Correct, {self.question} is {self.words[self.question]}"
+            footer_text = f"Correct, {answer}"
         else:
-            pkey = generate_pronunciation_key(self.question, self.katakana)
-            footer_text = f"Incorrect, {self.question} is {self.words[self.question]}\n{pkey}"
-        self.question = select_word(self.wordlist, self.stats.get_recent_incorrect_words(), self.question)
+            footer_text = f"Incorrect, {answer} \n not {self.editor.get_edit_text()}"
+        self.question = select_countries(self.countries)
         self.editor.set_edit_text("")
-        self.header.set_text(self.question)
+        self.header.set_text(", ".join(x['country'] for x in self.question))
         self.footer.set_text(footer_text)
 
 
